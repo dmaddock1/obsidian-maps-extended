@@ -1,8 +1,8 @@
-import { App, BasesEntry, BasesPropertyId, Keymap, Menu, setIcon } from 'obsidian';
+import { App, BasesEntry, BasesPropertyId, Keymap, Menu, getIcon, setIcon } from 'obsidian';
 import { Map as MapLibreMap, LngLatBounds, GeoJSONSource, MapLayerMouseEvent } from 'maplibre-gl';
 import type { Feature } from 'geojson';
 import { MapConfig, MapMarker, MapMarkerProperties } from './types';
-import { coordinateFromValue, formatCoordinates, toLngLat } from './utils';
+import { MarkerListItem, coordinateFromValue, formatCoordinates, markerListFromFrontmatter, toLngLat } from './utils';
 import { PopupManager } from './popup';
 
 const DEFAULT_MARKER_COLOR = 'var(--bases-map-marker-background)';
@@ -65,7 +65,7 @@ export class MarkerManager {
 
 	async updateMarkers(data: { data: BasesEntry[] }): Promise<void> {
 		const mapConfig = this.getMapConfig();
-		if (!this.map || !data || !mapConfig || !mapConfig.coordinatesProp) {
+		if (!this.map || !data || !mapConfig || (!mapConfig.coordinatesProp && !mapConfig.markerListProp)) {
 			return;
 		}
 
@@ -75,20 +75,38 @@ export class MarkerManager {
 			if (!entry) continue;
 
 			let coordinates: [number, number] | null = null;
-			try {
-				const value = entry.getValue(mapConfig.coordinatesProp);
-				coordinates = coordinateFromValue(value);
-			}
-			catch (error) {
-				console.error(`Error extracting coordinates for ${entry.file.name}:`, error);
+			if (mapConfig.coordinatesProp) {
+				try {
+					const value = entry.getValue(mapConfig.coordinatesProp);
+					coordinates = coordinateFromValue(value);
+				}
+				catch (error) {
+					console.error(`Error extracting coordinates for ${entry.file.name}:`, error);
+				}
 			}
 
+			const entryIcon = this.getCustomIcon(entry, mapConfig);
+			const entryColor = this.getCustomColor(entry, mapConfig) || DEFAULT_MARKER_COLOR;
+
 			if (coordinates) {
-				const icon = this.getCustomIcon(entry, mapConfig);
-				const color = this.getCustomColor(entry, mapConfig) || DEFAULT_MARKER_COLOR;
 				validMarkers.push({
 					entry,
 					coordinates,
+					label: null,
+					icon: entryIcon,
+					color: entryColor,
+					imageKey: this.getCompositeImageKey(entryIcon, entryColor),
+				});
+			}
+
+			for (const item of this.getMarkerList(entry, mapConfig)) {
+				// Unknown icon names (e.g. legacy Leaflet marker types) fall back to the entry's icon
+				const icon = item.icon && getIcon(item.icon) ? item.icon : entryIcon;
+				const color = item.color || entryColor;
+				validMarkers.push({
+					entry,
+					coordinates: item.coordinates,
+					label: item.name,
 					icon,
 					color,
 					imageKey: this.getCompositeImageKey(icon, color),
@@ -127,6 +145,18 @@ export class MarkerManager {
 			this.addMarkerLayers();
 			this.setupMarkerInteractions();
 		}
+	}
+
+	/**
+	 * Reads the marker list straight from the frontmatter cache, since Bases
+	 * values flatten nested lists according to the property's type.
+	 */
+	private getMarkerList(entry: BasesEntry, mapConfig: MapConfig): MarkerListItem[] {
+		const prop = mapConfig.markerListProp;
+		if (!prop || !prop.startsWith('note.')) return [];
+
+		const frontmatter = this.app.metadataCache.getFileCache(entry.file)?.frontmatter;
+		return markerListFromFrontmatter(frontmatter?.[prop.slice('note.'.length)]);
 	}
 
 	/** Reads a property as a trimmed string, warning rather than failing when it isn't one. */
@@ -403,7 +433,8 @@ export class MarkerManager {
 				markerData.coordinates,
 				data.properties,
 				this.getMarkerDrivenProps(mapConfig),
-				this.getDisplayName
+				this.getDisplayName,
+				markerData.label
 			);
 		});
 
@@ -468,7 +499,7 @@ export class MarkerManager {
 
 	/** Properties already represented by the marker itself, so popups skip them. */
 	private getMarkerDrivenProps(mapConfig: MapConfig): BasesPropertyId[] {
-		return [mapConfig.coordinatesProp, mapConfig.markerIconProp, mapConfig.markerColorProp]
+		return [mapConfig.coordinatesProp, mapConfig.markerIconProp, mapConfig.markerColorProp, mapConfig.markerListProp]
 			.filter((prop): prop is BasesPropertyId => prop != null);
 	}
 }

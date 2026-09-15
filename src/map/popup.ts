@@ -31,13 +31,14 @@ export class PopupManager {
 		coordinates: [number, number],
 		properties: BasesPropertyId[],
 		hiddenProps: BasesPropertyId[],
-		getDisplayName: (prop: BasesPropertyId) => string
+		getDisplayName: (prop: BasesPropertyId) => string,
+		label: string | null = null
 	): void {
 		if (!this.map) return;
 
-		// Only show popup if there are properties to display
+		// Only show popup if there is a label or properties to display
 		const propertiesWithValues = this.collectDisplayProperties(entry, properties, hiddenProps);
-		if (propertiesWithValues.length === 0) return;
+		if (!label && propertiesWithValues.length === 0) return;
 
 		this.clearPopupHideTimeout();
 
@@ -65,7 +66,7 @@ export class PopupManager {
 
 		// Update popup content and position
 		const [lat, lng] = coordinates;
-		const popupContent = this.createPopupContent(entry, propertiesWithValues, getDisplayName);
+		const popupContent = this.createPopupContent(entry, propertiesWithValues, getDisplayName, label);
 		this.sharedPopup
 			.setDOMContent(popupContent)
 			.setLngLat([lng, lat])
@@ -133,26 +134,41 @@ export class PopupManager {
 	private createPopupContent(
 		entry: BasesEntry,
 		propertiesWithValues: PopupProperty[],
-		getDisplayName: (prop: BasesPropertyId) => string
+		getDisplayName: (prop: BasesPropertyId) => string,
+		label: string | null
 	): HTMLElement {
 		const containerEl = createDiv('bases-map-popup');
 
-		// Use first property as title (still acts as a link to the file)
-		if (propertiesWithValues.length > 0) {
-			const firstProperty = propertiesWithValues[0];
-			const titleEl = containerEl.createDiv('bases-map-popup-title');
-
-			// Create a clickable link that opens the file
-			const titleLinkEl = titleEl.createEl('a', {
-				href: entry.file.path,
-				cls: 'internal-link'
+		if (label) {
+			// Marker list items are titled by their own name. A wikilink name
+			// links to its target; otherwise the title links to the entry's file.
+			const linkMatch = /^\[\[([^|\]]+)(?:\|([^\]]+))?\]\]$/.exec(label);
+			containerEl.createDiv('bases-map-popup-title').createEl('a', {
+				href: linkMatch ? linkMatch[1] : entry.file.path,
+				cls: 'internal-link',
+				text: linkMatch ? (linkMatch[2] ?? linkMatch[1]) : label,
 			});
+		}
 
-			// Render the first property value inside the link
-			firstProperty.value.renderTo(titleLinkEl, this.app.renderContext);
+		// Without a label, use first property as title (still acts as a link to the file)
+		if (propertiesWithValues.length > 0) {
+			let remainingProperties = propertiesWithValues;
+			if (!label) {
+				const firstProperty = propertiesWithValues[0];
+				const titleEl = containerEl.createDiv('bases-map-popup-title');
 
-			// Show remaining properties (excluding the first one used as title)
-			const remainingProperties = propertiesWithValues.slice(1);
+				// Create a clickable link that opens the file
+				const titleLinkEl = titleEl.createEl('a', {
+					href: entry.file.path,
+					cls: 'internal-link'
+				});
+
+				// Render the first property value inside the link
+				firstProperty.value.renderTo(titleLinkEl, this.app.renderContext);
+
+				// Show remaining properties (excluding the first one used as title)
+				remainingProperties = propertiesWithValues.slice(1);
+			}
 			if (remainingProperties.length > 0) {
 				const propContainerEl = containerEl.createDiv('bases-map-popup-properties');
 				for (const { prop, value } of remainingProperties) {

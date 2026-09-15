@@ -31,6 +31,110 @@ export function coordinateFromValue(value: Value | null): [number, number] | nul
 	return null;
 }
 
+/** One marker read from a marker list property. */
+export interface MarkerListItem {
+	coordinates: [number, number];
+	name: string | null;
+	icon: string | null;
+	color: string | null;
+}
+
+/**
+ * Reads a marker list from raw frontmatter. Each item may be:
+ * - `[icon, [lat, lng], name?, color?]`
+ * - `{ coordinates: [lat, lng], name?, icon?, color? }`
+ * - `[lat, lng]` or `"lat, lng"`
+ * Items that can't be parsed are skipped.
+ */
+export function markerListFromFrontmatter(value: unknown): MarkerListItem[] {
+	if (!Array.isArray(value)) return [];
+
+	const items: MarkerListItem[] = [];
+	for (const raw of value) {
+		const item = markerListItemFromFrontmatter(raw);
+		if (item) items.push(item);
+	}
+	return items;
+}
+
+function markerListItemFromFrontmatter(raw: unknown): MarkerListItem | null {
+	if (Array.isArray(raw)) {
+		// [icon, [lat, lng], name?, color?]
+		if (Array.isArray(raw[1])) {
+			const coordinates = coordinateFromRaw(raw[1]);
+			if (!coordinates) return null;
+			return {
+				coordinates,
+				icon: stringFromRaw(raw[0]),
+				name: stringFromRaw(raw[2]),
+				color: stringFromRaw(raw[3]),
+			};
+		}
+		// [lat, lng]
+		const coordinates = coordinateFromRaw(raw);
+		return coordinates && { coordinates, icon: null, name: null, color: null };
+	}
+
+	if (raw != null && typeof raw === 'object') {
+		const obj = raw as Record<string, unknown>;
+		const coordinates = coordinateFromRaw(obj.coordinates ?? obj.location);
+		if (!coordinates) return null;
+		return {
+			coordinates,
+			icon: stringFromRaw(obj.icon),
+			name: stringFromRaw(obj.name),
+			color: stringFromRaw(obj.color),
+		};
+	}
+
+	const coordinates = coordinateFromRaw(raw);
+	return coordinates && { coordinates, icon: null, name: null, color: null };
+}
+
+function coordinateFromRaw(raw: unknown): [number, number] | null {
+	let parts: unknown[] | null = null;
+	if (Array.isArray(raw)) parts = raw;
+	else if (typeof raw === 'string') parts = raw.split(',');
+	if (!parts || parts.length < 2) return null;
+
+	const lat = parseCoordinate(typeof parts[0] === 'string' ? parts[0].trim() : parts[0]);
+	const lng = parseCoordinate(typeof parts[1] === 'string' ? parts[1].trim() : parts[1]);
+	return lat != null && lng != null && verifyLatLng(lat, lng) ? [lat, lng] : null;
+}
+
+function stringFromRaw(raw: unknown): string | null {
+	if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+	return String(raw).trim() || null;
+}
+
+/**
+ * Reads bounds as `[[lat, lng], [lat, lng]]` (any two opposite corners) or
+ * `[south, west, north, east]`, returning `[[south, west], [north, east]]`.
+ */
+export function boundsFromValue(value: Value | null): [[number, number], [number, number]] | null {
+	if (!(value instanceof ListValue)) return null;
+
+	let a: [number, number] | null = null;
+	let b: [number, number] | null = null;
+	if (value.length() === 2) {
+		a = coordinateFromValue(value.get(0));
+		b = coordinateFromValue(value.get(1));
+	}
+	else if (value.length() === 4) {
+		const [s, w, n, e] = [0, 1, 2, 3].map(i => parseCoordinate(value.get(i)));
+		if (s != null && w != null && n != null && e != null && verifyLatLng(s, w) && verifyLatLng(n, e)) {
+			a = [s, w];
+			b = [n, e];
+		}
+	}
+	if (!a || !b) return null;
+
+	return [
+		[Math.min(a[0], b[0]), Math.min(a[1], b[1])],
+		[Math.max(a[0], b[0]), Math.max(a[1], b[1])],
+	];
+}
+
 /**
  * Verifies that lat/lng values are within valid ranges
  */

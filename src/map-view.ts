@@ -6,6 +6,7 @@ import {
 	QueryController,
 	Value,
 	StringValue,
+	NumberValue,
 	NullValue,
 	BasesAllOptions,
 } from 'obsidian';
@@ -19,7 +20,7 @@ import { StyleManager } from './map/style';
 import { PopupManager } from './map/popup';
 import { MarkerManager } from './map/markers';
 import { MapConfig } from './map/types';
-import { hasOwnProperty, coordinateFromValue, toLngLat, roundCoordinate, formatCoordinates, sameCoordinates } from './map/utils';
+import { hasOwnProperty, coordinateFromValue, boundsFromValue, toLngLat, roundCoordinate, formatCoordinates, sameCoordinates } from './map/utils';
 import { rtlPluginCode } from './map/rtl-plugin-code';
 
 export const MapViewType = 'map';
@@ -28,6 +29,8 @@ export const MapViewType = 'map';
 interface ConfigSnapshot {
 	center: unknown;
 	defaultZoom: unknown;
+	zoomFormula: unknown;
+	bounds: unknown;
 	minZoom: unknown;
 	maxZoom: unknown;
 	mapHeight: unknown;
@@ -49,6 +52,8 @@ export class MapView extends BasesView {
 	private isFirstLoad = true;
 	private lastConfigSnapshot: ConfigSnapshot | null = null;
 	private lastEvaluatedCenter: [number, number] | null = null;
+	private lastEvaluatedZoom: number | null = null;
+	private lastEvaluatedBounds: string | null = null;
 
 	// Managers
 	private styleManager: StyleManager;
@@ -174,7 +179,7 @@ export class MapView extends BasesView {
 		// An unconfigured center starts at the default and is corrected to the marker
 		// bounds once the style has loaded.
 		let initialCenter = toLngLat(this.mapConfig.center ?? DEFAULT_MAP_CENTER);
-		let initialZoom = this.mapConfig.defaultZoom;
+		let initialZoom = this.mapConfig.zoomOverride ?? this.mapConfig.defaultZoom;
 
 		// Capture if we are starting with a pending state restoration
 		const isRestoringState = this.pendingMapState !== null;
@@ -231,6 +236,12 @@ export class MapView extends BasesView {
 			// If we were restoring state, do not reset to defaults
 			if (isRestoringState || this.pendingMapState) return;
 
+			// Configured bounds take precedence over center and zoom
+			if (this.mapConfig.bounds) {
+				this.applyBounds();
+				return;
+			}
+
 			const configuredCenter = this.mapConfig.center;
 
 			// Set center based on configuration
@@ -245,7 +256,10 @@ export class MapView extends BasesView {
 			}
 
 			// Set zoom based on configuration
-			if (this.hasConfiguredZoom()) {
+			if (this.mapConfig.zoomOverride !== null) {
+				this.map.setZoom(this.mapConfig.zoomOverride); // Use zoom formula
+			}
+			else if (this.hasConfiguredZoom()) {
 				this.map.setZoom(this.mapConfig.defaultZoom); // Use configured zoom
 			}
 			else {
@@ -280,6 +294,9 @@ export class MapView extends BasesView {
 
 		// Check if the evaluated center coordinates have changed
 		const centerChanged = !sameCoordinates(this.mapConfig.center, this.lastEvaluatedCenter);
+		const zoomChanged = this.mapConfig.zoomOverride !== this.lastEvaluatedZoom;
+		const boundsKey = JSON.stringify(this.mapConfig.bounds);
+		const boundsChanged = boundsKey !== this.lastEvaluatedBounds;
 
 		void this.initializeMap().then(async () => {
 			// Apply config to map on first load or when config changes
@@ -288,11 +305,17 @@ export class MapView extends BasesView {
 				this.lastConfigSnapshot = configSnapshot;
 				this.isFirstLoad = false;
 			}
-			// Update center when the evaluated center coordinates change
+			// Update the viewport when evaluated center, zoom or bounds change
 			// (e.g., due to formula re-evaluation when active file changes)
 			// But skip if we're restoring ephemeral state
-			else if (this.map && !this.isFirstLoad && centerChanged && this.pendingMapState === null) {
-				this.updateCenter();
+			else if (this.map && !this.isFirstLoad && this.pendingMapState === null) {
+				if (this.mapConfig?.bounds) {
+					if (boundsChanged) this.applyBounds();
+				}
+				else {
+					if (zoomChanged) this.updateZoom();
+					if (centerChanged) this.updateCenter();
+				}
 			}
 
 			if (this.map && this.data) {
@@ -315,6 +338,8 @@ export class MapView extends BasesView {
 			if (this.mapConfig) {
 				const center = this.mapConfig.center;
 				this.lastEvaluatedCenter = center && [center[0], center[1]];
+				this.lastEvaluatedZoom = this.mapConfig.zoomOverride;
+				this.lastEvaluatedBounds = boundsKey;
 			}
 		});
 	}
@@ -327,9 +352,20 @@ export class MapView extends BasesView {
 	private updateZoom(): void {
 		if (!this.map || !this.mapConfig) return;
 
-		if (this.hasConfiguredZoom()) {
+		if (this.mapConfig.zoomOverride !== null) {
+			this.map.setZoom(this.mapConfig.zoomOverride);
+		}
+		else if (this.hasConfiguredZoom()) {
 			this.map.setZoom(this.mapConfig.defaultZoom);
 		}
+	}
+
+	/** Fits the map to the configured bounds. */
+	private applyBounds(): void {
+		if (!this.map || !this.mapConfig?.bounds) return;
+
+		const [southWest, northEast] = this.mapConfig.bounds;
+		this.map.fitBounds([toLngLat(southWest), toLngLat(northEast)], { padding: 20, animate: false });
 	}
 
 	private updateCenter(): void {
@@ -355,7 +391,9 @@ export class MapView extends BasesView {
 
 		// Detect what changed
 		const centerConfigChanged = oldConfig?.center !== newConfig.center;
-		const zoomConfigChanged = oldConfig?.defaultZoom !== newConfig.defaultZoom;
+		const zoomConfigChanged = oldConfig?.defaultZoom !== newConfig.defaultZoom ||
+			oldConfig?.zoomFormula !== newConfig.zoomFormula;
+		const boundsConfigChanged = oldConfig?.bounds !== newConfig.bounds;
 		const tilesChanged = JSON.stringify(oldConfig?.mapTiles) !== JSON.stringify(newConfig.mapTiles) ||
 			JSON.stringify(oldConfig?.mapTilesDark) !== JSON.stringify(newConfig.mapTilesDark);
 		const heightChanged = oldConfig?.mapHeight !== newConfig.mapHeight;
@@ -376,16 +414,24 @@ export class MapView extends BasesView {
 		// (e.g., when navigating back in history to restore the user's last pan/zoom)
 		const hasEphemeralState = this.pendingMapState !== null;
 
-		// Only update zoom on first load or when zoom config explicitly changed
-		// But skip if we're restoring ephemeral state
-		if (!hasEphemeralState && (this.isFirstLoad || zoomConfigChanged)) {
-			this.updateZoom();
+		// Configured bounds take precedence over center and zoom
+		if (this.mapConfig.bounds) {
+			if (!hasEphemeralState && (this.isFirstLoad || boundsConfigChanged || zoomConfigChanged || centerConfigChanged)) {
+				this.applyBounds();
+			}
 		}
+		else {
+			// Only update zoom on first load or when zoom config explicitly changed
+			// But skip if we're restoring ephemeral state
+			if (!hasEphemeralState && (this.isFirstLoad || zoomConfigChanged)) {
+				this.updateZoom();
+			}
 
-		// Update center on first load or when center config changed
-		// But skip if we're restoring ephemeral state
-		if (!hasEphemeralState && (this.isFirstLoad || centerConfigChanged)) {
-			this.updateCenter();
+			// Update center on first load or when center config changed
+			// But skip if we're restoring ephemeral state
+			if (!hasEphemeralState && (this.isFirstLoad || centerConfigChanged)) {
+				this.updateCenter();
+			}
 		}
 
 		// Update map style if tiles configuration changed
@@ -424,14 +470,17 @@ export class MapView extends BasesView {
 		const coordinatesProp = this.config.getAsPropertyId('coordinates');
 		const markerIconProp = this.config.getAsPropertyId('markerIcon');
 		const markerColorProp = this.config.getAsPropertyId('markerColor');
+		const markerListProp = this.config.getAsPropertyId('markerList');
 
 		// Load numeric configurations with validation
 		const minZoom = this.getNumericConfig('minZoom', 0, 0, 24);
 		const maxZoom = this.getNumericConfig('maxZoom', 18, 0, 24);
 		const defaultZoom = this.getNumericConfig('defaultZoom', DEFAULT_MAP_ZOOM, minZoom, maxZoom);
+		const zoomOverride = this.getZoomFromConfig(minZoom, maxZoom);
 
-		// Load center coordinates
+		// Load center coordinates and bounds
 		const center = this.getCenterFromConfig();
+		const bounds = boundsFromValue(this.getFormulaValue('bounds'));
 
 		// Load map height for embedded views
 		const mapHeight = this.isEmbedded()
@@ -475,8 +524,11 @@ export class MapView extends BasesView {
 			coordinatesProp,
 			markerIconProp,
 			markerColorProp,
+			markerListProp,
 			mapHeight,
 			defaultZoom,
+			zoomOverride,
+			bounds,
 			center,
 			maxZoom,
 			minZoom,
@@ -510,15 +562,34 @@ export class MapView extends BasesView {
 		return [];
 	}
 
-	/** Returns null when no usable center is configured, so [0, 0] stays a real center. */
-	private getCenterFromConfig(): [number, number] | null {
-		let centerConfig: Value | null = null;
+	/** Evaluates a formula option, returning null when it is unset or fails to evaluate. */
+	private getFormulaValue(key: string): Value | null {
+		if (!this.config.get(key)) return null;
 
 		try {
-			centerConfig = this.config.getEvaluatedFormula(this, 'center');
+			const value = this.config.getEvaluatedFormula(this, key);
+			return value && !Value.equals(value, NullValue.value) ? value : null;
 		} catch {
 			// Formula evaluation failed (e.g., this.file is null when no active file)
+			return null;
 		}
+	}
+
+	/** Zoom from the zoom formula, or null when it doesn't evaluate to a number. */
+	private getZoomFromConfig(min: number, max: number): number | null {
+		const value = this.getFormulaValue('zoomFormula');
+		let zoom: number | null = null;
+		if (value instanceof NumberValue || value instanceof StringValue) {
+			zoom = parseFloat(value.toString());
+		}
+		if (zoom === null || isNaN(zoom)) return null;
+
+		return Math.min(max, Math.max(min, zoom));
+	}
+
+	/** Returns null when no usable center is configured, so [0, 0] stays a real center. */
+	private getCenterFromConfig(): [number, number] | null {
+		let centerConfig = this.getFormulaValue('center');
 
 		// Fall back to the raw config value, which also supports the legacy string format
 		if (!centerConfig || Value.equals(centerConfig, NullValue.value)) {
@@ -535,6 +606,8 @@ export class MapView extends BasesView {
 		return {
 			center: this.config.get('center'),
 			defaultZoom: this.config.get('defaultZoom'),
+			zoomFormula: this.config.get('zoomFormula'),
+			bounds: this.config.get('bounds'),
 			minZoom: this.config.get('minZoom'),
 			maxZoom: this.config.get('maxZoom'),
 			mapHeight: this.config.get('mapHeight'),
@@ -677,6 +750,18 @@ export class MapView extends BasesView {
 						default: DEFAULT_MAP_ZOOM,
 					},
 					{
+						displayName: 'Zoom formula',
+						type: 'formula',
+						key: 'zoomFormula',
+						placeholder: 'Number, overrides default zoom',
+					},
+					{
+						displayName: 'Bounds',
+						type: 'formula',
+						key: 'bounds',
+						placeholder: '[[south, west], [north, east]]',
+					},
+					{
 						displayName: 'Minimum zoom',
 						type: 'slider',
 						key: 'minZoom',
@@ -719,6 +804,13 @@ export class MapView extends BasesView {
 						type: 'property',
 						key: 'markerColor',
 						filter: prop => !prop.startsWith('file.'),
+						placeholder: 'Property',
+					},
+					{
+						displayName: 'Marker list',
+						type: 'property',
+						key: 'markerList',
+						filter: prop => prop.startsWith('note.'),
 						placeholder: 'Property',
 					},
 				]
