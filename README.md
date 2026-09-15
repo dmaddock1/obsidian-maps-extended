@@ -1,3 +1,34 @@
+## Maps (extended)
+
+This is a fork of [obsidianmd/obsidian-maps](https://github.com/obsidianmd/obsidian-maps) that adds a few options to the map view. It is kept as a small set of commits on top of upstream. It installs under the plugin ID `maps-extended`, so don't enable it alongside the official Maps plugin.
+
+**Marker list** and **Extra marker list** read a note property holding several markers, so one note can put many markers on the map. Each item is either a short list or an object:
+
+```yaml
+mapmarkers:
+  - [book-open, [41.1476, -8.6134], Livraria Bertrand]   # icon, [lat, lng], name, optional color
+  - name: "[[Cockburn's]]"                              # a wikilink name links the popup title to that note
+    coordinates: [41.1335, -8.6182]
+    icon: wine
+    color: "#8b1a3a"
+```
+
+Icons are [Lucide](https://lucide.dev/icons/) names; an unknown name falls back to the note's icon, or a plain dot. Hovering a marker shows its name as the popup title, and clicking opens the note it came from.
+
+**Zoom formula** overrides the default zoom slider, and **Bounds** fits the map to `[[south, west], [north, east]]` (or `[south, west, north, east]`), overriding center and zoom. Both are formulas, so a view embedded in many notes can read them from the embedding note, e.g. `this.zoom` and `this.bounds`.
+
+To build, run `npm install` and `npm run build`, then copy `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/maps-extended/`.
+
+To pick up upstream changes:
+
+```bash
+git fetch upstream
+git rebase upstream/master
+git push --force-with-lease
+```
+
+---
+
 Adds a [map layout](https://obsidian.md/help/bases/views/map) to [Obsidian Bases](https://obsidian.md/help/bases) so you can display notes as an interactive map view.
 
 ![Map view for Obsidian Bases](/images/map-view.png)
