@@ -7,6 +7,8 @@ export interface MapConfig {
 	markerColorProp: BasesPropertyId | null;
 	/** Note property holding a list of extra markers for each entry. */
 	markerListProp: BasesPropertyId | null;
+	/** A second marker list property, read alongside the first. */
+	extraMarkerListProp: BasesPropertyId | null;
 	mapHeight: number;
 	defaultZoom: number;
 	/** Zoom from the zoom formula, overriding the default zoom slider when set. */

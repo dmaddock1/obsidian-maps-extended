@@ -65,7 +65,8 @@ export class MarkerManager {
 
 	async updateMarkers(data: { data: BasesEntry[] }): Promise<void> {
 		const mapConfig = this.getMapConfig();
-		if (!this.map || !data || !mapConfig || (!mapConfig.coordinatesProp && !mapConfig.markerListProp)) {
+		if (!this.map || !data || !mapConfig ||
+			(!mapConfig.coordinatesProp && !mapConfig.markerListProp && !mapConfig.extraMarkerListProp)) {
 			return;
 		}
 
@@ -152,11 +153,12 @@ export class MarkerManager {
 	 * values flatten nested lists according to the property's type.
 	 */
 	private getMarkerList(entry: BasesEntry, mapConfig: MapConfig): MarkerListItem[] {
-		const prop = mapConfig.markerListProp;
-		if (!prop || !prop.startsWith('note.')) return [];
-
 		const frontmatter = this.app.metadataCache.getFileCache(entry.file)?.frontmatter;
-		return markerListFromFrontmatter(frontmatter?.[prop.slice('note.'.length)]);
+		if (!frontmatter) return [];
+
+		return [mapConfig.markerListProp, mapConfig.extraMarkerListProp]
+			.filter((prop): prop is BasesPropertyId => prop?.startsWith('note.') ?? false)
+			.flatMap(prop => markerListFromFrontmatter(frontmatter[prop.slice('note.'.length)]));
 	}
 
 	/** Reads a property as a trimmed string, warning rather than failing when it isn't one. */
@@ -499,7 +501,7 @@ export class MarkerManager {
 
 	/** Properties already represented by the marker itself, so popups skip them. */
 	private getMarkerDrivenProps(mapConfig: MapConfig): BasesPropertyId[] {
-		return [mapConfig.coordinatesProp, mapConfig.markerIconProp, mapConfig.markerColorProp, mapConfig.markerListProp]
+		return [mapConfig.coordinatesProp, mapConfig.markerIconProp, mapConfig.markerColorProp, mapConfig.markerListProp, mapConfig.extraMarkerListProp]
 			.filter((prop): prop is BasesPropertyId => prop != null);
 	}
 }

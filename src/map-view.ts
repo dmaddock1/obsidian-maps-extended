@@ -471,6 +471,7 @@ export class MapView extends BasesView {
 		const markerIconProp = this.config.getAsPropertyId('markerIcon');
 		const markerColorProp = this.config.getAsPropertyId('markerColor');
 		const markerListProp = this.config.getAsPropertyId('markerList');
+		const extraMarkerListProp = this.config.getAsPropertyId('extraMarkerList');
 
 		// Load numeric configurations with validation
 		const minZoom = this.getNumericConfig('minZoom', 0, 0, 24);
@@ -525,6 +526,7 @@ export class MapView extends BasesView {
 			markerIconProp,
 			markerColorProp,
 			markerListProp,
+			extraMarkerListProp,
 			mapHeight,
 			defaultZoom,
 			zoomOverride,
@@ -810,6 +812,13 @@ export class MapView extends BasesView {
 						displayName: 'Marker list',
 						type: 'property',
 						key: 'markerList',
+						filter: prop => prop.startsWith('note.'),
+						placeholder: 'Property',
+					},
+					{
+						displayName: 'Extra marker list',
+						type: 'property',
+						key: 'extraMarkerList',
 						filter: prop => prop.startsWith('note.'),
 						placeholder: 'Property',
 					},
