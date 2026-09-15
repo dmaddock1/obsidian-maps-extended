@@ -131,6 +131,27 @@ body {
 	}
 }
 
+/* When the map theme setting overrides Obsidian's theme, match the attribution to the map, not the app */
+.bases-map-container.is-map-light .maplibregl-ctrl.maplibregl-ctrl-attrib {
+	background-color: rgba(255, 255, 255, 0.8);
+	color: #5c5c5c;
+
+	a,
+	a:hover {
+		color: #5c5c5c;
+	}
+}
+
+.bases-map-container.is-map-dark .maplibregl-ctrl.maplibregl-ctrl-attrib {
+	background-color: rgba(0, 0, 0, 0.6);
+	color: #b3b3b3;
+
+	a,
+	a:hover {
+		color: #b3b3b3;
+	}
+}
+
 .maplibregl-popup-content {
 	background-color: var(--background-primary);
 	color: var(--text-normal);

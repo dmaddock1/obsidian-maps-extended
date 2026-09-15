@@ -4,13 +4,15 @@ import { transformMapboxStyle } from '../mapbox-transform';
 
 export class StyleManager {
 	private app: App;
+	private isDarkMode: () => boolean;
 
-	constructor(app: App) {
+	constructor(app: App, isDarkMode: () => boolean = () => app.isDarkMode()) {
 		this.app = app;
+		this.isDarkMode = isDarkMode;
 	}
 
 	async getMapStyle(mapTiles: string[], mapTilesDark: string[]): Promise<string | StyleSpecification> {
-		const isDark = this.app.isDarkMode();
+		const isDark = this.isDarkMode();
 		const tileUrls = isDark && mapTilesDark.length > 0 ? mapTilesDark : mapTiles;
 
 		// Determine style URL: use custom if provided, otherwise use default style

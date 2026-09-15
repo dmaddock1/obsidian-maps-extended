@@ -5,6 +5,8 @@ import { GEOLOCATION_OPTIONS, geolocationErrorMessage } from './map/utils';
 
 export default class ObsidianMapsPlugin extends Plugin {
 	settings: MapSettings;
+	/** Open map views, so a theme setting change can restyle them. */
+	mapViews: Set<MapView> = new Set();
 
 	async onload() {
 		await this.loadSettings();
@@ -37,6 +39,16 @@ export default class ObsidianMapsPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Whether maps should use dark backgrounds, per the map theme setting. */
+	isMapDark(): boolean {
+		const theme = this.settings.mapTheme;
+		return theme === 'auto' ? this.app.isDarkMode() : theme === 'dark';
+	}
+
+	refreshMapStyles(): void {
+		this.mapViews.forEach(view => view.refreshStyle());
 	}
 
 	private getCurrentLocationAndCopy(): void {

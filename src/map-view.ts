@@ -69,9 +69,10 @@ export class MapView extends BasesView {
 		this.plugin = plugin;
 		this.containerEl = scrollEl.createDiv({ cls: 'bases-map-container is-loading', attr: { tabIndex: 0 } });
 		this.mapEl = this.containerEl.createDiv('bases-map');
+		this.applyThemeClass();
 
 		// Initialize managers
-		this.styleManager = new StyleManager(this.app);
+		this.styleManager = new StyleManager(this.app, () => plugin.isMapDark());
 		this.popupManager = new PopupManager(this.containerEl, this.app);
 		this.markerManager = new MarkerManager(
 			this.app,
@@ -87,6 +88,7 @@ export class MapView extends BasesView {
 	onload(): void {
 		// Listen for theme changes to update map tiles
 		this.registerEvent(this.app.workspace.on('css-change', this.onThemeChange, this));
+		this.plugin.mapViews.add(this);
 
 		// Add context menu to map
 		this.registerDomEvent(this.mapEl, 'contextmenu', (evt) => {
@@ -96,7 +98,21 @@ export class MapView extends BasesView {
 	}
 
 	onunload() {
+		this.plugin.mapViews.delete(this);
 		this.destroyMap();
+	}
+
+	/** Reloads the background style, e.g. after the map theme setting changes. */
+	public refreshStyle(): void {
+		this.applyThemeClass();
+		this.onThemeChange();
+	}
+
+	/** Marks a theme override so map controls can match the map rather than the app. */
+	private applyThemeClass(): void {
+		const theme = this.plugin.settings.mapTheme;
+		this.containerEl.toggleClass('is-map-light', theme === 'light');
+		this.containerEl.toggleClass('is-map-dark', theme === 'dark');
 	}
 
 	/** Reduce flashing due to map re-rendering by debouncing while resizes are still ocurring. */

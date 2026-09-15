@@ -17,6 +17,8 @@ Icons are [Lucide](https://lucide.dev/icons/) names; an unknown name falls back 
 
 **Zoom formula** overrides the default zoom slider, and **Bounds** fits the map to `[[south, west], [north, east]]` (or `[south, west, north, east]`), overriding center and zoom. Both are formulas, so a view embedded in many notes can read them from the embedding note, e.g. `this.zoom` and `this.bounds`.
 
+**Map theme**, in the plugin settings, chooses whether map backgrounds follow the Obsidian theme (the default) or are always light or always dark. Open maps restyle as soon as the setting changes.
+
 To build, run `npm install` and `npm run build`, then copy `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/maps-extended/`.
 
 To pick up upstream changes:

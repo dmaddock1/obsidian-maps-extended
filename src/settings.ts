@@ -8,12 +8,17 @@ export interface TileSet {
 	darkTiles: string;
 }
 
+/** 'auto' follows Obsidian's light/dark theme; 'light' and 'dark' override it. */
+export type MapTheme = 'auto' | 'light' | 'dark';
+
 export interface MapSettings {
 	tileSets: TileSet[];
+	mapTheme: MapTheme;
 }
 
 export const DEFAULT_SETTINGS: MapSettings = {
 	tileSets: [],
+	mapTheme: 'auto',
 };
 
 class TileSetModal extends Modal {
@@ -108,6 +113,19 @@ export class MapSettingTab extends PluginSettingTab {
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
 		return [{
+			name: 'Map theme',
+			desc: 'Use light or dark map backgrounds regardless of the Obsidian theme, or follow it.',
+			control: {
+				type: 'dropdown',
+				key: 'mapTheme',
+				defaultValue: DEFAULT_SETTINGS.mapTheme,
+				options: {
+					auto: 'Follow Obsidian',
+					light: 'Light',
+					dark: 'Dark',
+				},
+			},
+		}, {
 			type: 'list',
 			heading: 'Backgrounds',
 			emptyState: 'Add background sets available to all maps.',
@@ -149,6 +167,11 @@ export class MapSettingTab extends PluginSettingTab {
 				},
 			})),
 		}];
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		await super.setControlValue(key, value);
+		if (key === 'mapTheme') this.plugin.refreshMapStyles();
 	}
 
 	/** Adding, removing or renaming a tile set changes the definitions themselves. */
